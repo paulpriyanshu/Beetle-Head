@@ -1,0 +1,107 @@
+{
+  "manifestId": "mussoorie-trip-under-10k",
+  "query": "Mussoorie trip plan under 10000 rupees budget itinerary",
+  "youtubeQuery": "Mussoorie trip under 10000 budget vlog 2024",
+  "errorHandling": {
+    "onStepFailure": "CONTINUE_WITH_WARNING"
+  },
+  "steps": [
+    {
+      "id": "scrape_google",
+      "type": "SCRAPE_SEARCH_RESULTS",
+      "dependencies": [],
+      "parallel": false,
+      "config": {
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "validate_google",
+      "type": "AI_VALIDATE_RESULTS",
+      "dependencies": [
+        "scrape_google"
+      ],
+      "parallel": false,
+      "config": {
+        "validationPrompt": "Score each result for a budget Mussoorie trip under 10000 INR. Prefer pages that include day-by-day itineraries, accommodation costs, food budgets, and travel logistics from major cities. Penalise luxury or high-end listings.",
+        "criteria": {
+          "mustContain": [
+            "itinerary",
+            "budget",
+            "mussoorie"
+          ],
+          "preferTags": [
+            "travel blog",
+            "cost breakdown",
+            "day by day"
+          ]
+        },
+        "minConfidenceScore": 0.55,
+        "maxResults": 5
+      }
+    },
+    {
+      "id": "open_blogs",
+      "type": "OPEN_VALIDATED_URLS",
+      "dependencies": [
+        "validate_google"
+      ],
+      "parallel": false,
+      "config": {
+        "maxTabs": 4,
+        "staggerDelay": 1200,
+        "activateFirst": false
+      }
+    },
+    {
+      "id": "open_youtube_search",
+      "type": "OPEN_YOUTUBE_TAB",
+      "dependencies": [
+        "validate_google"
+      ],
+      "parallel": true,
+      "config": {
+        "youtubeQuery": "Mussoorie trip under 10000 budget vlog 2024",
+        "waitForLoad": 5000
+      }
+    },
+    {
+      "id": "analyze_blogs",
+      "type": "ANALYZE_PAGE",
+      "dependencies": [
+        "open_blogs"
+      ],
+      "parallel": false,
+      "config": {
+        "waitForPageLoad": 3000,
+        "extractContent": true,
+        "extractLinks": true,
+        "extractStructuredData": true,
+        "keywords": [
+          "mussoorie",
+          "budget",
+          "itinerary",
+          "hotel",
+          "travel",
+          "cost",
+          "accommodation"
+        ]
+      }
+    },
+    {
+      "id": "scrape_youtube",
+      "type": "SCRAPE_YOUTUBE_RESULTS",
+      "dependencies": [
+        "open_youtube_search"
+      ],
+      "parallel": true,
+      "config": {
+        "maxVideos": 4,
+        "criteria": {
+          "minViews": 500,
+          "keywords": []
+        }
+      }
+    }
+  ]
+}

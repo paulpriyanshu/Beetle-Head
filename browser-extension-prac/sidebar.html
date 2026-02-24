@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Quick Open</title>
+  <link rel="stylesheet" href="sidebar.css" />
+  <style>
+    /* Debug Panel Styles */
+    .debug-panel {
+      position: fixed;
+      bottom: 60px;
+      left: 0;
+      right: 0;
+      max-height: 150px;
+      background: #1a1a1a;
+      border-top: 1px solid #333;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      display: none;
+      z-index: 9999;
+    }
+
+    .debug-panel.active {
+      display: block;
+    }
+
+    .debug-line {
+      padding: 2px 8px;
+      border-bottom: 1px solid #222;
+      color: #888;
+    }
+
+    .debug-line.info {
+      color: #4a9eff;
+    }
+
+    .debug-line.success {
+      color: #4ade80;
+    }
+
+    .debug-line.warning {
+      color: #fbbf24;
+    }
+
+    .debug-line.error {
+      color: #ef4444;
+    }
+
+    .debug-toggle {
+      position: fixed;
+      bottom: 65px;
+      right: 10px;
+      background: #333;
+      color: #fff;
+      border: none;
+      padding: 4px 8px;
+      font-size: 10px;
+      cursor: pointer;
+      border-radius: 3px;
+      z-index: 10000;
+    }
+
+    /* Auto-growing textarea */
+    #siteInput {
+      min-height: 40px;
+      max-height: 120px;
+      overflow-y: auto;
+      resize: none;
+    }
+  </style>
+  <script src="lucide.min.js"></script>
+</head>
+
+<body class="theme-dark">
+  <div class="chat-container">
+    <!-- 🆕 Login View (Gated) -->
+    <div id="loginView" class="hidden">
+      <div class="login-content">
+        <div class="app-logo">
+          <i data-lucide="zap" class="logo-icon"></i>
+          <h1>Quick Open</h1>
+        </div>
+        <p class="login-subtitle">Your personal AI browser companion.</p>
+        <button id="btnLoginPrimary" class="login-btn-primary">
+          <i data-lucide="log-in"></i>
+          <span>Login with Google</span>
+        </button>
+        <div class="login-features">
+          <div class="feature-item">
+            <i data-lucide="shield-check"></i>
+            <span>Secure JWT Auth</span>
+          </div>
+          <div class="feature-item">
+            <i data-lucide="cloud"></i>
+            <span>Cloud Sync</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🧩 Main View (Authenticated) -->
+    <div id="mainView">
+      <!-- Modern Header with Tabs -->
+      <header class="sidebar-header">
+        <nav class="nav-tabs">
+          <button class="nav-tab active" id="btnChats" data-tab="chats">
+            <span class="tab-icon"><i data-lucide="message-square"></i></span>
+            <span class="tab-label">Chats</span>
+          </button>
+          <button class="nav-tab" id="btnNotes" data-tab="notes">
+            <span class="tab-icon"><i data-lucide="sticky-note"></i></span>
+            <span class="tab-label">Notes</span>
+          </button>
+          <button class="nav-tab" id="btnAgent" data-tab="agent">
+            <span class="tab-icon"><i data-lucide="bot"></i></span>
+            <span class="tab-label">Agent</span>
+          </button>
+          <button class="nav-tab" id="btnHistory" title="View History">
+            <span class="tab-icon"><i data-lucide="history"></i></span>
+            <span class="tab-label">History</span>
+          </button>
+          <div class="nav-tab nav-profile-tab" id="userProfile" title="Profile">
+            <span class="tab-icon profile-pic-container" id="profileToggle">
+              <img src="https://www.gstatic.com/images/branding/product/1x/avatar_circle_blue_512dp.png" id="userAvatar"
+                alt="User" />
+            </span>
+            <span class="tab-label">Profile</span>
+
+            <div class="profile-dropdown hidden" id="profileDropdown">
+              <div class="dropdown-header">
+                <div class="user-email" id="displayEmail">Not logged in</div>
+              </div>
+              <div class="dropdown-divider"></div>
+              <button class="dropdown-item" id="btnMedia">
+                <i data-lucide="image"></i>
+                <span>Media Gallery</span>
+              </button>
+              <div class="dropdown-divider"></div>
+              <button class="dropdown-item" id="btnAuth">
+                <i data-lucide="log-out" id="authIcon"></i>
+                <span id="authText">Logout</span>
+              </button>
+            </div>
+          </div>
+          <!-- <span class="tab-label">Profile</span> -->
+        </nav>
+      </header>
+
+      <!-- Persistent Video Progress Area -->
+      <div id="videoProgressArea"></div>
+      <div id="videoResizer" class="resizer-v"></div>
+
+      <div class="main-content">
+        <!-- Messages -->
+        <div class="chat-messages tab-content active" id="messages">
+          <button class="chat-expand-btn" id="btnExpandChat" title="Toggle Video Area">
+            <i data-lucide="maximize-2"></i>
+          </button>
+          <div class="bot-msg">
+            <div class="bot-text">How can I help you today?</div>
+          </div>
+        </div>
+
+        <!-- General Notes Tab -->
+        <div class="notes-container tab-content" id="notesTab" style="display: none;">
+          <div class="notes-header">
+            <div class="header-top">
+              <h3>My Notes</h3>
+              <button id="btnBackToNotes" class="back-btn" style="display: none;">
+                <i data-lucide="arrow-left"></i>
+              </button>
+            </div>
+            <p class="notes-subtitle">Quick ideas and reminders</p>
+          </div>
+
+          <div class="note-input-area">
+            <textarea id="generalNoteInput" placeholder="Take a general note..." rows="2"></textarea>
+            <button id="saveGeneralNoteBtn">Save General Note</button>
+          </div>
+
+          <div class="notes-list" id="generalNotesList">
+            <!-- General Notes will be rendered here -->
+            <div class="empty-notes">
+              <span class="empty-icon"><i data-lucide="book-open"></i></span>
+              <p>No general notes yet.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat History Tab Content -->
+        <div class="chat-history-container tab-content" id="chatHistoryView" style="display: none;">
+          <div class="history-header">
+            <div class="header-top">
+              <button id="btnBackToChat" class="back-btn">
+                <i data-lucide="arrow-left"></i>
+              </button>
+              <h3>Past Chats</h3>
+            </div>
+          </div>
+          <div class="history-list" id="chatHistoryList">
+            <div class="empty-history">
+              <span class="empty-icon"><i data-lucide="message-square-off"></i></span>
+              <p>No chat history yet.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Media Gallery Tab Content -->
+        <div class="media-container tab-content" id="mediaTab" style="display: none;">
+          <div class="media-header">
+            <div class="header-top">
+              <button id="btnBackFromMedia" class="back-btn">
+                <i data-lucide="arrow-left"></i>
+              </button>
+              <h3>Media Gallery</h3>
+            </div>
+            <p class="media-subtitle">Your uploaded and generated files</p>
+            <div class="media-filters">
+              <button class="filter-btn active" data-filter="all">All</button>
+              <button class="filter-btn" data-filter="image">Images</button>
+              <button class="filter-btn" data-filter="pdf">PDFs</button>
+              <button class="filter-btn" data-filter="docx">Docs</button>
+            </div>
+          </div>
+          <div class="media-grid" id="mediaGrid">
+            <div class="empty-media">
+              <span class="empty-icon"><i data-lucide="image-off"></i></span>
+              <p>No media files yet.</p>
+            </div>
+          </div>
+        </div>
+      </div> <!-- End .main-content -->
+
+      <!-- Video Notes UI (Contextual, shown in Chat) -->
+      <template id="videoNotesTemplate">
+        <div class="video-progress-card">
+          <div class="video-progress-content">
+            <div class="progress-info">
+              <span class="video-title-label">🎬 Loading...</span>
+              <span class="video-time-label">0:00 / 0:00</span>
+            </div>
+            <div class="progress-container">
+              <div class="progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <div class="video-notes-contextual">
+            <div class="video-notes-toggle-header">
+              <span>🎬 Video Notes</span>
+              <button class="video-notes-expand-btn">▼</button>
+            </div>
+            <div class="video-notes-body hidden">
+              <div class="note-input-area compact">
+                <textarea class="video-note-input" placeholder="Note at current time..." rows="1"></textarea>
+                <button class="save-video-note-btn">Save @ <span class="video-current-time-label">0:00</span></button>
+              </div>
+              <div class="notes-list compact video-notes-list"></div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Floating Action Bar -->
+      <div class="floating-action-bar">
+        <button class="action-item" id="btnScreenRecord" title="Screen Record">
+          <span class="action-icon">🎥</span>
+          <span class="action-label">Record</span>
+        </button>
+        <button class="action-item" id="btnScreenshot" title="Take Screenshot">
+          <span class="action-icon">📸</span>
+          <span class="action-label">Screenshot</span>
+        </button>
+        <button class="action-item" id="btnCircleSearch" title="Circle to Search">
+          <span class="action-icon">🔍</span>
+          <span class="action-label">Circle Search</span>
+        </button>
+        <button class="action-item" id="btnWritingTool" title="Summarise Page">
+          <span class="action-icon">✍️</span>
+          <span class="action-label">Summarise</span>
+        </button>
+        <button class="action-item" id="btnShowTAbs" title="View Tabs">
+          <span class="action-icon">🗂️</span>
+          <span class="action-label">Tabs</span>
+        </button>
+        <button class="action-item" id="btnGroupTabs" title="Group Tabs by Topic">
+          <span class="action-icon">📂</span>
+          <span class="action-label">Group Tabs</span>
+        </button>
+        <button class="action-item" id="btnNews" title="Latest News">
+          <span class="action-icon">📰</span>
+          <span class="action-label">News</span>
+        </button>
+        <button class="action-item" id="btnSiteTheme" title="Toggle Website Theme">
+          <span class="action-icon">🌗</span>
+          <span class="action-label">Dark Site</span>
+        </button>
+        <button class="action-item" id="btnSmartSnapshot" title="Smart Snapshot (PDF, PNG, Markdown, etc.)">
+          <span class="action-icon">📸✨</span>
+          <span class="action-label">Smart Snap</span>
+        </button>
+      </div>
+
+      <!-- Screenshot Choice Modal -->
+      <div class="ss-modal hidden" id="ssModal">
+        <div class="ss-modal-backdrop"></div>
+
+        <div class="ss-modal-card">
+          <div class="ss-modal-header">
+            <span>Take Screenshot</span>
+            <button class="ss-close" id="ssClose">✕</button>
+          </div>
+
+          <div class="ss-modal-body">
+            <button class="ss-option" id="ssVisible">
+              📸
+              <div>
+                <div class="ss-title">Visible Screen</div>
+                <div class="ss-desc">Capture only what’s on screen</div>
+              </div>
+            </button>
+
+            <button class="ss-option" id="ssFull">
+              📜
+              <div>
+                <div class="ss-title">Full Web Page</div>
+                <div class="ss-desc">Scroll & capture entire page</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Smart Snapshot Modal -->
+      <div class="ss-modal hidden" id="smartSnapshotModal">
+        <div class="ss-modal-backdrop"></div>
+        <div class="ss-modal-card">
+          <div class="ss-modal-header">
+            <span>Smart Snapshot ✨</span>
+            <button class="ss-close" id="snapClose">✕</button>
+          </div>
+          <div class="ss-modal-body">
+            <div class="snap-options-grid">
+              <button class="snap-option" data-format="marketing_pdf">
+                <span class="snap-icon">🎯</span>
+                <div class="snap-text">
+                  <div class="snap-title">Marketing PDF</div>
+                  <div class="snap-desc">Premium marketing template</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="business_report">
+                <span class="snap-icon">🏛️</span>
+                <div class="snap-text">
+                  <div class="snap-title">Business Report</div>
+                  <div class="snap-desc">Corporate analysis style</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="pdf">
+                <span class="snap-icon">📊</span>
+                <div class="snap-text">
+                  <div class="snap-title">Smart PDF</div>
+                  <div class="snap-desc">Data report with links & images</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="docx">
+                <span class="snap-icon">📝</span>
+                <div class="snap-text">
+                  <div class="snap-title">MS Word Doc</div>
+                  <div class="snap-desc">Structured Word document</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="png">
+                <span class="snap-icon">🖼️</span>
+                <div class="snap-text">
+                  <div class="snap-title">Exact Image</div>
+                  <div class="snap-desc">Save as high-quality PNG</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="markdown">
+                <span class="snap-icon">📄</span>
+                <div class="snap-text">
+                  <div class="snap-title">Markdown Data</div>
+                  <div class="snap-desc">Extract text & formatting (MD)</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="research_paper">
+                <span class="snap-icon">🎓</span>
+                <div class="snap-text">
+                  <div class="snap-title">Research Paper</div>
+                  <div class="snap-desc">AI-generated academic style PDF</div>
+                </div>
+              </button>
+              <button class="snap-option" data-format="ppt">
+                <span class="snap-icon">📽️</span>
+                <div class="snap-text">
+                  <div class="snap-title">PPT Slides</div>
+                  <div class="snap-desc">Modern presentation slides</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tools Toggle -->
+      <div class="tools-toggle-container">
+        <button id="btnToolsToggle" aria-label="Tools">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="tools-icon">
+            <path
+              d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Tab Carousel Area -->
+      <div id="tabsCarousel" class="tabs-carousel hidden"></div>
+
+      <!-- Tab Selection Drawer -->
+      <div id="tabsDrawer" class="tabs-drawer hidden">
+        <div class="tabs-drawer-backdrop" id="tabsDrawerBackdrop"></div>
+        <div class="tabs-drawer-container">
+          <div class="tabs-drawer-header">
+            <div class="drawer-title-group">
+              <span id="drawerGroupIcon" class="drawer-group-icon">🌐</span>
+              <h3 id="drawerGroupName" class="drawer-group-title">Select Tab</h3>
+            </div>
+            <button id="closeTabsDrawer" class="drawer-close-btn">✕</button>
+          </div>
+          <div class="tabs-drawer-list" id="tabsDrawerList">
+            <!-- Tabs will be rendered here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Fixed Input -->
+      <div class="chat-input container">
+        <!-- Image Preview Area -->
+        <div class="input-preview-area hidden" id="inputPreviewArea">
+          <div class="preview-image-container">
+            <img id="previewImage" alt="Preview" />
+            <div class="upload-progress-container hidden" id="uploadProgressContainer">
+              <div class="upload-progress-bar" id="uploadProgressBar"></div>
+            </div>
+            <button class="preview-remove-btn" id="previewRemoveBtn" title="Remove image">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="preview-label" id="previewLabel">Image attached - Type your query below</div>
+        </div>
+
+        <!-- Plus Menu -->
+        <div class="plus-menu-container">
+          <button class="btn-plus" id="btnPlusMenu">
+            <i data-lucide="plus"></i>
+          </button>
+          <div class="plus-dropdown" id="plusDropdown">
+            <button class="plus-item" id="btnNewChat">
+              <i data-lucide="message-square-plus"></i>
+              <span>New Chat</span>
+            </button>
+            <button class="plus-item" id="btnUploadFile">
+              <i data-lucide="upload"></i>
+              <span>Upload File</span>
+            </button>
+            <button class="plus-item" id="btnTakePhoto">
+              <i data-lucide="camera"></i>
+              <span>Take Photo</span>
+            </button>
+          </div>
+        </div>
+        <textarea id="siteInput" placeholder="Message Quick Open..." autocomplete="off" rows="1"></textarea>
+        <button id="sendBtn">↑</button>
+      </div>
+    </div> <!-- End #mainView -->
+  </div> <!-- End .chat-container -->
+
+  <!-- Debug Panel -->
+  <!-- <button class="dom" id="dom-btn"">Print DOM</button> -->
+  <button class="debug-toggle" id="debugToggle">Debug</button>
+  <div class="debug-panel" id="debugPanel"></div>
+  <script type="module" src="sidebar.js"></script>
+  <script src="marked.min.js"></script>
+</body>
+
+</html>

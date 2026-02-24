@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "Quick Open Sidebar",
+  "version": "2.1",
+  "description": "AI-powered sidebar with direct HTML page reading",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "sidePanel",
+    "storage",
+    "activeTab",
+    "scripting",
+    "offscreen",
+    "contextMenus",
+    "identity",
+    "cookies"
+  ],
+  "oauth2": {
+    "client_id": "921978485918-qr2qpshqa2ffpvp6r4a9rbh7tql8vsp5.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Open Sidebar"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidebar.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "sampleManifest.json",
+        "dom/domExecutor.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
