@@ -1,0 +1,10 @@
+{
+    "name": "api",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "venv/bin/python -m uvicorn main:app --reload",
+        "start": "venv/bin/python -m uvicorn main:app",
+        "build": "echo 'No build step for Python'"
+    }
+}

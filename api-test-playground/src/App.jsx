@@ -114,7 +114,7 @@ function App() {
 
       while (true) {
         const { done, value } = await reader.read();
-        console.log(done, JSON.parse(decoder.decode(value, { stream: true })).message.content)
+        // console.log(done, JSON.parse(decoder.decode(value, { stream: true })).message.content)
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });

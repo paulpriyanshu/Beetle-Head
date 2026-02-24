@@ -1,0 +1,9 @@
+{
+    "name": "extension-v1",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "echo 'Extension-v1 is a vanilla JS project. No dev server needed.'",
+        "build": "echo 'No build step for extension-v1'"
+    }
+}
