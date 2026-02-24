@@ -1,0 +1,62 @@
+{
+    "manifest_version": 3,
+    "name": "Quick Open",
+    "version": "1.0.0",
+    "description": "Your personal AI browser companion.",
+    "permissions": [
+        "sidePanel",
+        "storage",
+        "identity",
+        "tabs",
+        "scripting",
+        "activeTab",
+        "cookies",
+        "tabGroups",
+        "contextMenus"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "side_panel": {
+        "default_path": "index.html"
+    },
+    "action": {
+        "default_title": "Open Quick Open"
+    },
+    "oauth2": {
+        "client_id": "921978485918-2uqrhk7g5ggvirst73b601mg3o6951at.apps.googleusercontent.com",
+        "scopes": [
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/userinfo.email"
+        ]
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "*.js",
+                "*.css",
+                "*.html",
+                "*.png",
+                "*.svg"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}

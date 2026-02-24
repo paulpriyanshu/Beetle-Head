@@ -1,0 +1,40 @@
+:root {
+  --bg-color: #212121;
+  --sidebar-bg: #171717;
+  --text-main: #ececec;
+  --text-muted: #b4b4b4;
+  --border-color: #424242;
+  --accent-color: #10a37f;
+  --accent-hover: #1a7f64;
+  --user-msg-bg: #303030;
+  --ai-msg-bg: transparent;
+
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: var(--text-main);
+  background-color: var(--bg-color);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--bg-color);
+}
+
+#root {
+  width: 100%;
+}
