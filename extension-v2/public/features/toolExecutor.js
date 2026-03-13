@@ -48,8 +48,17 @@ window.ToolExecutor = {
     },
 
     typeText: async function (selector, text) {
-        const el = document.querySelector(selector);
+        let el = document.querySelector(selector);
+        
+        // Fallback for older selector formats if needed, or if element was dynamic
+        if (!el && selector.includes('data-ai-id')) {
+             console.warn("AI Element not found by stable ID, trying fallback query...");
+        }
+
         if (!el) throw new Error(`Element not found: ${selector}`);
+
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await new Promise(r => setTimeout(r, 300));
 
         el.focus();
         el.value = text;
@@ -60,7 +69,8 @@ window.ToolExecutor = {
         const isSearchBox = el.type === 'search' ||
             el.getAttribute('role') === 'searchbox' ||
             el.name?.toLowerCase().includes('search') ||
-            el.name?.toLowerCase() === 'q';
+            el.name?.toLowerCase() === 'q' ||
+            (el.tagName === 'INPUT' && el.form);
 
         if (isSearchBox) {
             // Simulate Enter key press
@@ -72,7 +82,14 @@ window.ToolExecutor = {
                 bubbles: true
             });
             el.dispatchEvent(enterEvent);
-            await new Promise(r => setTimeout(r, 500)); // Wait for form submission
+            
+            // Fallback: try to submit the parent form
+            if (el.form) {
+                setTimeout(() => {
+                    try { el.form.submit(); } catch(e) {}
+                }, 100);
+            }
+            await new Promise(r => setTimeout(r, 1000)); // Wait for form submission/navigation
         }
 
         return { success: true, action: "typed", submitted: isSearchBox };

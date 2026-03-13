@@ -27,10 +27,9 @@ export async function startAgentLoop(tabId, goal, history = []) {
     // Track researched pages for final summary
     const researchLog = [];
 
-    // Hard per-tool limits — forces linear phase progression
+    // Higher per-step limit for total automation
     const toolUseCounts = {};
-    const TOOL_LIMITS = { search_google: 1, search_youtube: 1, open_urls_in_background: 2, navigate_to: 1 };
-
+    const TOOL_LIMITS = { search_google: 3, search_youtube: 2, open_urls_in_background: 5, navigate_to: 5 };
 
     try {
         for (let step = 0; step < MAX_STEPS; step++) {
@@ -61,12 +60,12 @@ export async function startAgentLoop(tabId, goal, history = []) {
 
             if (!toolCall) { await delay(600); continue; }
 
-            // Enforce tool-use limits — force linear progression
+            // Enforce tool-use limits (liberal limits for automation)
             if (toolCall.name in TOOL_LIMITS) {
                 const count = (toolUseCounts[toolCall.name] || 0);
                 if (count >= TOOL_LIMITS[toolCall.name]) {
-                    broadcastStatus(`⚠️ ${toolCall.name} limit reached, move to next phase…`);
-                    history.push({ role: "system", content: `SYSTEM: ${toolCall.name} already used ${count} time(s). Proceed to next phase.` });
+                    broadcastStatus(`⚠️ ${toolCall.name} limit reached, finalizing…`);
+                    history.push({ role: "system", content: `SYSTEM: ${toolCall.name} limit reached. Wrap up.` });
                     continue;
                 }
                 toolUseCounts[toolCall.name] = count + 1;

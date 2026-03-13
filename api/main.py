@@ -348,6 +348,11 @@ async def save_context_endpoint(
     try:
         user, db = await get_user_from_token(authorization)
         
+        # Check if already embedded to avoid re-parsing and re-uploading
+        if req.conversation_id:
+            if vector_store.has_context(str(user.id), req.url, req.conversation_id):
+                return {"status": "skipped", "message": "Already embedded for this tab/conversation"}
+        
         # Extract text from DOM
         from utils.text_processing import extract_clean_text_from_dom
         
@@ -365,7 +370,7 @@ async def save_context_endpoint(
             
         print("content",content)
         # Save to Vector Store
-        count = vector_store.process_and_save_context(
+        count = await vector_store.process_and_save_context(
             user_id=str(user.id),
             conversation_id=req.conversation_id,
             url=req.url,

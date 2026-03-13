@@ -12,28 +12,32 @@ window.DOMObserver = {
         const interactables = [];
         const elements = document.querySelectorAll('button, a, input, select, textarea, [role="button"], [onclick]');
 
-        let idCounter = 1;
-
         elements.forEach(el => {
             // Skip invisible elements
             if (!this.isVisible(el)) return;
 
+            // Generate/Get stable AI ID
+            if (!el.hasAttribute('data-ai-id')) {
+                const id = 'ai-' + Math.random().toString(36).substring(2, 9);
+                el.setAttribute('data-ai-id', id);
+            }
+            const aiId = el.getAttribute('data-ai-id');
+            const selector = `[data-ai-id="${aiId}"]`;
+
             const rect = el.getBoundingClientRect();
             const text = el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || "";
 
-            // Generate a unique selector or use ID
-            const selector = this.getSelector(el);
-
-            // Assign a temporary ID for the agent to reference easily if needed
-            // (Though usually we use selector)
-            el.dataset.agentId = idCounter++;
-
             interactables.push({
                 tag: el.tagName.toLowerCase(),
-                text: text.slice(0, 50).replace(/\s+/g, ' ').trim(),
+                text: text.slice(0, 100).replace(/\s+/g, ' ').trim(),
                 selector: selector,
                 type: el.type || null,
-                // location: { x: Math.round(rect.x), y: Math.round(rect.y) }
+                attributes: {
+                    id: el.id || null,
+                    class: el.className || null,
+                    name: el.name || null,
+                    placeholder: el.placeholder || null
+                }
             });
         });
 

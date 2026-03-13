@@ -217,9 +217,36 @@ export default function App() {
               background: 'rgba(16,163,127,0.08)',
               borderBottom: '1px solid rgba(16,163,127,0.2)',
               flexShrink: 0,
-              textTransform: 'none'
+              textTransform: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8
             }}>
-              ⚙️ Agent mode active
+              <span>⚙️ Agent mode active</span>
+              <button 
+                onClick={() => {
+                  dispatch({ type: 'SET_AGENT_MODE', value: false });
+                  if (typeof chrome !== 'undefined' && chrome.runtime) {
+                    chrome.runtime.sendMessage({ type: 'STOP_AGENT_LOOP' }).catch(() => {});
+                  }
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  textDecoration: 'underline'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+              >
+                Deactivate
+              </button>
             </div>
           )}
 

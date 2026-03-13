@@ -19,7 +19,27 @@ export default function TabsCarousel({ onTabSelected }) {
     }, []);
 
     useEffect(() => {
-        if (tabsCarouselOpen) loadTabs();
+        if (!tabsCarouselOpen) return;
+
+        loadTabs();
+
+        const handleTabChange = () => {
+            loadTabs();
+        };
+
+        if (typeof chrome !== 'undefined' && chrome.tabs) {
+            chrome.tabs.onCreated.addListener(handleTabChange);
+            chrome.tabs.onUpdated.addListener(handleTabChange);
+            chrome.tabs.onRemoved.addListener(handleTabChange);
+        }
+
+        return () => {
+            if (typeof chrome !== 'undefined' && chrome.tabs) {
+                chrome.tabs.onCreated.removeListener(handleTabChange);
+                chrome.tabs.onUpdated.removeListener(handleTabChange);
+                chrome.tabs.onRemoved.removeListener(handleTabChange);
+            }
+        };
     }, [tabsCarouselOpen, loadTabs]);
 
     const handleTabGroupClick = useCallback((domain, tabs) => {
