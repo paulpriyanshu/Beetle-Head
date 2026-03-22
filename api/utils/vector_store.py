@@ -10,6 +10,7 @@ from db.models.chatContext import ChatContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
+from pinecone import Pinecone
 
 load_dotenv()
 
@@ -36,6 +37,15 @@ class VectorStoreService:
             chunk_overlap=100,
             separators=["\n\n", "\n", " ", ""]
         )
+
+        pincone_api_key = os.getenv("PINECONE_API_KEY")
+        self.index_name = os.getenv("PINECONE_INDEX_NAME")
+        if pincone_api_key and self.index_name:
+            self.pc = Pinecone(api_key=pincone_api_key)
+            self.index = self.pc.Index(self.index_name)
+        else:
+            self.pc = None
+            self.index = None
 
     # --------------------------------------------------------
     # Ensure vectors match pgvector dimension (1536)
@@ -185,6 +195,27 @@ class VectorStoreService:
             db.add_all(new_chunk_objects)
             db.flush()
 
+            # Upsert to Pinecone if available
+            if self.index and new_chunk_objects:
+                vectors_to_upsert = []
+                for chunk in new_chunk_objects:
+                    vectors_to_upsert.append({
+                        "id": str(chunk.id),
+                        "values": chunk.embedding,
+                        "metadata": {
+                            "user_id": str(chunk.user_id),
+                            "url": chunk.url,
+                            "content": chunk.content,
+                            "content_hash": chunk.content_hash,
+                            "chunk_index": chunk.chunk_index
+                        }
+                    })
+                
+                try:
+                    self.index.upsert(vectors=vectors_to_upsert)
+                except Exception as p_err:
+                    print(f"⚠️ Pinecone upsert failed: {p_err}")
+
             for nc in new_chunk_objects:
                 existing_hash_to_id[nc.content_hash] = nc.id
 
@@ -267,6 +298,26 @@ class VectorStoreService:
 
             query_embedding = get_query_embedding_sync(query)
 
+            # TRY PINECONE FIRST
+            if self.index:
+                try:
+                    filter_dict = {"user_id": str(user_id)}
+                    if current_url:
+                        filter_dict["url"] = current_url
+                    
+                    results = self.index.query(
+                        vector=query_embedding,
+                        top_k=limit,
+                        include_metadata=True,
+                        filter=filter_dict
+                    )
+                    
+                    if results and results.matches:
+                        return "\n\n".join(m.metadata["content"] for m in results.matches if "content" in m.metadata)
+                except Exception as p_query_err:
+                    print(f"⚠️ Pinecone query failed: {p_query_err}. Falling back to SQL.")
+
+            # FALLBACK TO SQL (Original logic)
             if conversation_id and current_url:
 
                 linked_chunk_ids = db.query(
