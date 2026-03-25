@@ -37,7 +37,7 @@ export default function ChatInput({ currentUrl }) {
         dispatch({ type: 'SET_AUTO_SCROLL', value: true });
 
         // Build user message content
-        const userContent = attachedImageUrl ? (text ? `${text}\n\n[Image Attached]` : '[Image Attached]') : text;
+        const userContent = text || (attachedImageUrl ? '[Image Attached]' : '');
         addMessage('user', userContent, { imageUrl: attachedImageUrl });
 
         if (inputRef.current) {

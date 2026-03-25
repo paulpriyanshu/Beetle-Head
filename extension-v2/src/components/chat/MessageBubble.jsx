@@ -8,26 +8,55 @@ marked.setOptions({ breaks: true, gfm: true });
 
 export default function MessageBubble({ message, onSendMessage }) {
     const { role, content, html, isStreaming, isError, contextAnalysis,
-        videoAnalysis, richBlocks, agentActions, isAgent, screenshot, video } = message;
+        videoAnalysis, richBlocks, agentActions, isAgent, screenshot, video, imageUrl } = message;
 
     if (role === 'user') {
         return (
             <div
-                className="user-msg"
+                className="user-msg-container"
                 style={{
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                    padding: '10px 14px',
-                    borderRadius: 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    marginBottom: 12,
                     maxWidth: '85%',
                     alignSelf: 'flex-end',
-                    marginBottom: 12,
-                    fontSize: 14,
-                    lineHeight: 1.5,
-                    wordWrap: 'break-word',
                 }}
             >
-                {content}
+                {imageUrl && (
+                    <div style={{
+                        marginBottom: 8,
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)',
+                        width: '100%',
+                    }}>
+                        <img
+                            src={imageUrl}
+                            alt="User Attachment"
+                            style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer' }}
+                            onClick={() => window.open(imageUrl, '_blank')}
+                        />
+                    </div>
+                )}
+                {content && (
+                    <div
+                        className="user-msg"
+                        style={{
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            padding: '10px 14px',
+                            borderRadius: 18,
+                            fontSize: 14,
+                            lineHeight: 1.5,
+                            wordWrap: 'break-word',
+                            width: 'fit-content',
+                        }}
+                    >
+                        {content}
+                    </div>
+                )}
             </div>
         );
     }

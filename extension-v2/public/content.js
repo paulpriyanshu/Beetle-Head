@@ -173,8 +173,8 @@
       fab.style.background = "#ffcc00";
       fab.innerHTML = "💡";
     } else {
-      fab.style.background = "linear-gradient(135deg, #6e8efb, #a777e3)";
-      fab.innerHTML = "🤖";
+      fab.style.background = "#fff";
+      fab.innerHTML = `<img src="${chrome.runtime.getURL('beetle-dark-removebg-preview.png')}" style="width: 32px; height: 32px; object-fit: contain;">`;
     }
   }
 
@@ -213,7 +213,9 @@
       </style>
       <div class="container" id="ai-container">
         <div class="menu" id="ai-menu"></div>
-        <div class="fab" id="ai-fab">🤖</div>
+        <div class="fab" id="ai-fab">
+          <img src="${chrome.runtime.getURL('beetle-dark-removebg-preview.png')}" style="width: 32px; height: 32px; object-fit: contain;">
+        </div>
       </div>
     `;
 

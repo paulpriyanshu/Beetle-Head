@@ -385,46 +385,31 @@ class ContextRequest(BaseModel):
 @app.post("/context/save")
 async def save_context_endpoint(
     req: ContextRequest,
+    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None)
     ):
     """
     Endpoint: Save scraped page context to the Vector Store.
     Triggered by: Frontend extension on tab selection/refresh.
     Expects: URL and raw_html (domTree JSON).
-    Functions: `vector_store.process_and_save_context`
+    Functions: `vector_store.process_and_save_context` (now asynchronous via BackgroundTasks)
     """
     try:
         # Auth: Verify requester identity
-        user, db = await get_user_from_token(authorization)
+        user, _ = await get_user_from_token(authorization)
         
-        # Logic Step: Prevent redundant embedding if conversation already has this context
-        if req.conversation_id:
-            if vector_store.has_context(str(user.id), req.url, req.conversation_id):
-                return {"status": "skipped", "message": "Already embedded for this tab/conversation"}
-        
-        # Logic Step: Pre-process DOM into clean text before vectorizing
-        from utils.text_processing import extract_clean_text_from_dom
-        
-        content = ""
-        if req.raw_html:
-            content = req.raw_html.get("textContent") or req.raw_html.get("content")
-            dom_tree = req.raw_html.get("domTree", req.raw_html) 
-            
-            if not content:
-                content = extract_clean_text_from_dom(dom_tree)
-        
-        if not content:
-            return {"status": "skipped", "message": "No content to save"}
-            
-        # Logic Step: Chunk, embed, and store in vector database (PageChunk + ChatContext tables)
-        count = await vector_store.process_and_save_context(
+        # Offload the entire processing & saving to a background task
+        # This allows the extension to continue without waiting for embeddings/upserts
+        background_tasks.add_task(
+            vector_store.process_and_save_context,
             user_id=str(user.id),
             conversation_id=req.conversation_id,
             url=req.url,
-            content=content
+            content=None, # Will be extracted from raw_html in the task if needed
+            raw_html=req.raw_html # Pass raw_html to context processor
         )
         
-        return {"status": "success", "chunks_saved": count}
+        return {"status": "success", "message": "Context synchronization initiated in background"}
         
     except Exception as e:
         print(f"Context save error: {e}")
@@ -665,29 +650,19 @@ async def get_conversations(
     finally:
         db.close()
 
-@app.post("/conversations/{conversation_id}/messages")
-async def add_message(
-    conversation_id: int,
-    message_data: MessageCreate,
-    background_tasks: BackgroundTasks,
-    authorization: Optional[str] = Header(None)
-):
-    """
-    Endpoint: Persist a finished chat turn (User Query + AI Response).
-    Triggered by: Frontend after streaming is complete.
-    Expects: `user_query`, `ai_response`.
-    Logic: Saves message and triggers background auto-titling if needed.
-    """
-    user, db = await get_user_from_token(authorization)
+async def add_message_task(conversation_id: int, user_id: int, message_data: MessageCreate):
+    """Background task to save message and handle auto-titling"""
+    db = SessionLocal()
     try:
         # Step 1: Ownership Verification
         conversation = db.query(Conversation).filter(
             Conversation.id == conversation_id, 
-            Conversation.user_id == user.id
+            Conversation.user_id == user_id
         ).first()
         
         if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            print(f"⚠️ Background save failed: Conversation {conversation_id} not found")
+            return
 
         # Step 2: Persistence
         message = Message(
@@ -701,16 +676,33 @@ async def add_message(
         # Step 3: Progressive Enhancement
         # If the conversation is new, generate an intelligent title from the first message
         if not conversation.title:
-            background_tasks.add_task(generate_conversation_title, conversation.id)
+            await generate_conversation_title(conversation.id)
 
-        return {"status": "success", "message": "Message added"}
-    except HTTPException:
-        raise
     except Exception as e:
+        print(f"❌ Background message save error: {e}")
         db.rollback()
-        return {"status": "error", "message": str(e)}
     finally:
         db.close()
+
+@app.post("/conversations/{conversation_id}/messages")
+async def add_message(
+    conversation_id: int,
+    message_data: MessageCreate,
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Endpoint: Persist a finished chat turn (User Query + AI Response).
+    Triggered by: Frontend after streaming is complete.
+    Expects: `user_query`, `ai_response`.
+    Logic: Saves message via BackgroundTasks to avoid blocking the response.
+    """
+    user, _ = await get_user_from_token(authorization)
+    
+    # Offload to background task
+    background_tasks.add_task(add_message_task, conversation_id, user.id, message_data)
+
+    return {"status": "success", "message": "Message saving initiated in background"}
 
 
 @app.get("/conversations/{conversation_id}/messages")
@@ -1581,8 +1573,8 @@ async def generate_stream(
         asks_about_current_page = any(keyword in prompt_lower for keyword in PAGE_CONTEXT_KEYWORDS)
 
         if asks_about_current_page and (req.current_url or req.conversation_id):
-            # Function: Cosine similarity search in ChromaDB
-            retrieved_context = vector_store.get_relevant_context(
+            # Function: Cosine similarity search in Pinecone (Asynchronous)
+            retrieved_context = await vector_store.get_relevant_context(
                 user_id=user_id,
                 query=req.prompt,
                 conversation_id=req.conversation_id,
@@ -1616,23 +1608,42 @@ async def generate_stream(
                     break
 
         if effective_image_url:
-            print(f"🖼️ Vision active (model: qwen3.5:2b)")
+            print(f"🖼️ Vision active (model: minicpm-v:8b)")
             chain = create_context_aware_chain(
                 page_context=None,
                 use_context=False,
                 video_transcripts=None,
                 image_url=effective_image_url
             )
-        elif retrieved_context:
-            chain = create_context_aware_chain(
-                page_context={
-                    "head": {"title": "Page", "description": ""},
-                    "content": retrieved_context
-                },
-                use_context=True,
-                video_transcripts=None,
-                image_url=None
-            )
+        elif retrieved_context or req.context:
+            # Step 5a: Context Fallback
+            # If nothing was retrieved from Pinecone/Vector DB, use the raw context from the request
+            final_context = retrieved_context
+            if not final_context and req.context:
+                from utils.text_processing import extract_clean_text_from_dom, limit_context
+                raw = req.context
+                content = ""
+                if isinstance(raw, dict):
+                    content = raw.get("textContent") or raw.get("content")
+                    if not content:
+                        content = extract_clean_text_from_dom(raw.get("domTree", raw))
+                
+                if content:
+                    final_context = limit_context(content, max_chunks=10) # ~5k chars limit
+                    print(f"⚡ Using fallback context from request payload ({len(final_context)} chars)")
+
+            if final_context:
+                chain = create_context_aware_chain(
+                    page_context={
+                        "head": {"title": "Page", "description": ""},
+                        "content": final_context
+                    },
+                    use_context=True,
+                    video_transcripts=None,
+                    image_url=None
+                )
+            else:
+                chain = runnable_chain
         else:
             chain = runnable_chain
 
@@ -1726,10 +1737,11 @@ async def agent_stream(
             except:
                 user_id = "default_user"
 
-            retrieved_context = vector_store.get_relevant_context(
+            retrieved_context = await vector_store.get_relevant_context(
                 user_id, 
                 req.prompt, 
-                req.conversation_id
+                req.conversation_id,
+                current_url=req.current_url
             )
 
             final_context_text = ""
@@ -2655,13 +2667,13 @@ async def analyze_circle_search_image(
         model_pref = getattr(req, "model", "openai")
         
         if model_pref == "ollama":
-            vision_model = ChatOllama(model="llama3.2-vision:latest", temperature=0.2, num_predict=500)
+            vision_model = ChatOllama(model="minicpm-v:8b", temperature=0.2, num_predict=500)
         else:
             vision_model = ChatOpenAI(
                 model="gpt-4o",
                 temperature=0.2,
                 api_key=os.getenv("OPENAI_API_KEY")
-            ).with_fallbacks([ChatOllama(model="llama3.2-vision:latest", temperature=0.2, num_predict=500)])
+            ).with_fallbacks([ChatOllama(model="minicpm-v:8b", temperature=0.2, num_predict=500)])
         
         vision_message = HumanMessage(
             content=[
@@ -2689,7 +2701,7 @@ Infer what the user wants and provide an explanation and suggestions with FULL U
         # Inference: Standard LLM mapping visual concepts to URLs
         def _get_explanation_model(pref):
             if pref == "ollama":
-                return ChatOllama(model="llama3.2:latest", temperature=0.7, num_predict=500)
+                return ChatOllama(model="minicpm-v:8b", temperature=0.7, num_predict=500)
             return ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=os.getenv("OPENAI_API_KEY"))
 
         explanation_model = _get_explanation_model(model_pref)
@@ -2769,13 +2781,13 @@ Return JSON only:
             model_pref = getattr(req, "model", "openai")
             
             if model_pref == "ollama":
-                vision_model = ChatOllama(model="llama3.2-vision:latest", temperature=0.2, num_predict=500)
+                vision_model = ChatOllama(model="minicpm-v:8b", temperature=0.2, num_predict=500)
             else:
                 vision_model = ChatOpenAI(
                     model="gpt-4o",
                     temperature=0.2,
                     api_key=os.getenv("OPENAI_API_KEY")
-                ).with_fallbacks([ChatOllama(model="llama3.2-vision:latest", temperature=0.2, num_predict=500)])
+                ).with_fallbacks([ChatOllama(model="minicpm-v:8b", temperature=0.2, num_predict=500)])
             
             vision_message = HumanMessage(
                 content=[
@@ -2825,14 +2837,14 @@ Vision AI found:
 Provide a clear, helpful explanation (2-3 sentences) about what the user is looking at and what they might want to do with it."""
             
             if model_pref == "ollama":
-                explanation_model = ChatOllama(model="llama3.2:latest", temperature=0.7, num_predict=500)
+                explanation_model = ChatOllama(model="minicpm-v:8b", temperature=0.7, num_predict=500)
                 # explanation_model = ChatOllama(model="smollm:135m", temperature=0.7)
             else:
                 explanation_model = ChatOpenAI(
                     model="gpt-4o-mini",
                     temperature=0.7,
                     api_key=os.getenv("OPENAI_API_KEY")
-                ).with_fallbacks([ChatOllama(model="llama3.2:latest", temperature=0.7, num_predict=500)])
+                ).with_fallbacks([ChatOllama(model="minicpm-v:8b", temperature=0.7, num_predict=500)])
             
             # Stream explanation
             full_explanation = ""

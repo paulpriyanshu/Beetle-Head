@@ -92,7 +92,9 @@ export function useStreaming() {
 
                 if (pageContext && conversationId) {
                     const token = state.accessToken;
-                    await fetch(API.CONTEXT, {
+                    // Trigger background context synchronization without awaiting.
+                    // This allows the chat request to start immediately.
+                    fetch(API.CONTEXT, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -103,8 +105,11 @@ export function useStreaming() {
                             raw_html: pageContext,
                             conversation_id: conversationId
                         })
+                    }).then(() => {
+                        console.log('[Context] Synced page context in background for:', effectiveUrl);
+                    }).catch(err => {
+                        console.error('[Context] Background sync failed:', err);
                     });
-                    console.log('[Context] Synced page context before chat request for:', effectiveUrl);
                 }
             }
         } catch (e) {

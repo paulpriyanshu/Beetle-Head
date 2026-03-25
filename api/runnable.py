@@ -24,8 +24,8 @@ ASSEMBLYAI_API_KEY=os.getenv("ASSEMBLYAI_API_KEY")
 aai.settings.api_key = ASSEMBLYAI_API_KEY
 
 # FALLBACK MODELS (Ollama)
-ollama_llm = ChatOllama(model="llama3.2:latest", num_predict=500)
-ollama_json_llm = ChatOllama(model="llama3.2:latest", format="json", num_predict=500)
+ollama_llm = ChatOllama(model="minicpm-v:8b", num_predict=500)
+ollama_json_llm = ChatOllama(model="minicpm-v:8b", format="json", num_predict=500)
 
 from langchain_core.runnables import RunnableConfig
 
@@ -546,8 +546,8 @@ def create_context_aware_chain(page_context=None, use_context=False, video_trans
     )
 
     if image_url:
-        # Vision model (User specified qwen3.5:2b)
-        qwen_vision_llm = ChatOllama(model="qwen3.5:2b", num_predict=2000,model_kwargs={
+        # Vision model (User specified minicpm-v:8b)
+        qwen_vision_llm = ChatOllama(model="minicpm-v:8b", num_predict=2000,model_kwargs={
         "options": {
             "think": False  # Disables extended thinking
         }
@@ -591,7 +591,7 @@ def create_context_aware_chain(page_context=None, use_context=False, video_trans
                 {"type": "image_url", "image_url": {"url": final_image_url}}
             ]))
 
-            print(f"🦙 Vision → qwen3.5:2b | history_len: {len(history)} | image_url: {final_image_url[:30]}...")
+            print(f"🦙 Vision → minicpm-v:8b | history_len: {len(history)} | image_url: {final_image_url[:30]}...")
             full = ""
             chunk_count = 0
             async for chunk in qwen_vision_llm.astream(messages):
@@ -602,7 +602,7 @@ def create_context_aware_chain(page_context=None, use_context=False, video_trans
                     yield chunk
             print(f"✅ Vision stream done: {chunk_count} chunks, {len(full)} chars")
             if len(full) == 0:
-                print("⚠️ 0 chars returned — qwen3.5:2b may not have vision support or image was invalid.")
+                print("⚠️ 0 chars returned — minicpm-v:8b may not have vision support or image was invalid.")
 
         return RunnableLambda(vision_stream_chain)
 

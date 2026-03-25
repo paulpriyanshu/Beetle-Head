@@ -102,6 +102,23 @@ class VectorStoreService:
             print(f"❌ Ollama query embedding failed: {ollama_err}")
             return [0.0] * self.VECTOR_DIM
 
+    def get_query_embedding_sync(self, q):
+        """Synchronous version for internal thread usage"""
+        if self.openai_embeddings:
+            try:
+                vec = self.openai_embeddings.embed_query(q)
+                return self._ensure_1536_dimensions(vec)
+            except Exception as e:
+                print(f"⚠️ OpenAI sync query embedding failed: {e}")
+
+        try:
+            print("🔄 Using Ollama for sync query embedding...")
+            vec = self.ollama_embeddings.embed_query(q)
+            return self._ensure_1536_dimensions(vec)
+        except Exception as ollama_err:
+            print(f"❌ Ollama sync query embedding failed: {ollama_err}")
+            return [0.0] * self.VECTOR_DIM
+
     # --------------------------------------------------------
     # Context existence check
     # --------------------------------------------------------
@@ -132,8 +149,18 @@ class VectorStoreService:
             user_id: str,
             conversation_id: int,
             url: str,
-            content: str
+            content: Optional[str] = None,
+            raw_html: Optional[dict] = None
         ) -> int:
+
+        # If background task was fired without pre-extracted content, extract it now
+        if not content and raw_html:
+            from utils.text_processing import extract_clean_text_from_dom
+            content = raw_html.get("textContent") or raw_html.get("content")
+            dom_tree = raw_html.get("domTree", raw_html) 
+            
+            if not content:
+                content = extract_clean_text_from_dom(dom_tree)
 
         if not content:
             return 0
@@ -143,129 +170,59 @@ class VectorStoreService:
         if not chunks:
             return 0
 
-        db: Session = SessionLocal()
+        # Page chunks are now saved EXCLUSIVELY to Pinecone for speed and scale.
+        # SQL storage (pgvector) is bypassed for these context fragments.
         saved_count = 0
 
         try:
             chunk_hashes = [hashlib.md5(c.encode()).hexdigest() for c in chunks]
 
-            existing_chunks = db.query(PageChunk).filter(
-                PageChunk.url == url,
-            PageChunk.content_hash.in_(chunk_hashes)
-        ).all()
-
-            existing_hash_to_id = {c.content_hash: c.id for c in existing_chunks}
-
-            new_chunks_data = []
-            seen_new_hashes = set()
-
-            for i, chunk_text in enumerate(chunks):
-
-                content_hash = chunk_hashes[i]
-
-                if (
-                    content_hash not in existing_hash_to_id
-                    and content_hash not in seen_new_hashes
-                ):
-                    new_chunks_data.append((i, chunk_text, content_hash))
-                    seen_new_hashes.add(content_hash)
-
-            new_chunk_objects = []
-            if new_chunks_data:
-
-                texts_to_embed = [data[1] for data in new_chunks_data]
-
+            if self.index:
+                texts_to_embed = chunks
                 embeddings = await self._embed_documents_with_fallback(texts_to_embed)
 
-                new_chunk_objects = []
-
-                for idx, (original_i, text, c_hash) in enumerate(new_chunks_data):
-
-                    new_chunk = PageChunk(
-                        user_id=str(user_id),
-                        url=url,
-                        chunk_index=original_i,
-                        content=text,
-                        content_hash=c_hash,
-                        embedding=self._ensure_1536_dimensions(embeddings[idx])
-                    )
-
-                    new_chunk_objects.append(new_chunk)
-
-            db.add_all(new_chunk_objects)
-            db.flush()
-
-            # Upsert to Pinecone if available
-            if self.index and new_chunk_objects:
                 vectors_to_upsert = []
-                for chunk in new_chunk_objects:
+                for i, text in enumerate(chunks):
+                    content_hash = chunk_hashes[i]
+                    # We use URL + Hash as a stable ID for Pinecone to prevent duplicates
+                    pinecone_id = f"{hashlib.md5(url.encode()).hexdigest()}_{content_hash}"
+                    
                     vectors_to_upsert.append({
-                        "id": str(chunk.id),
-                        "values": chunk.embedding,
+                        "id": pinecone_id,
+                        "values": self._ensure_1536_dimensions(embeddings[i]),
                         "metadata": {
-                            "user_id": str(chunk.user_id),
-                            "url": chunk.url,
-                            "content": chunk.content,
-                            "content_hash": chunk.content_hash,
-                            "chunk_index": chunk.chunk_index
+                            "user_id": str(user_id),
+                            "url": url,
+                            "content": text,
+                            "content_hash": content_hash,
+                            "chunk_index": i,
+                            "conversation_id": conversation_id or 0 # Store context link in Pinecone
                         }
                     })
-                
+
                 try:
-                    self.index.upsert(vectors=vectors_to_upsert)
+                    import asyncio
+                    # Run the sync Pinecone upsert in a thread to keep the event loop moving
+                    await asyncio.to_thread(self.index.upsert, vectors=vectors_to_upsert)
+                    saved_count = len(chunks)
+                    print(f"🚀 Successfully upserted {saved_count} chunks to Pinecone for: {url}")
                 except Exception as p_err:
                     print(f"⚠️ Pinecone upsert failed: {p_err}")
 
-            for nc in new_chunk_objects:
-                existing_hash_to_id[nc.content_hash] = nc.id
-
-            if conversation_id:
-
-                chunk_ids_to_link = list({
-                    existing_hash_to_id[h]
-                    for h in chunk_hashes
-                    if h in existing_hash_to_id
-                })
-
-                existing_links = db.query(ChatContext).filter(
-                    ChatContext.conversation_id == conversation_id,
-                    ChatContext.chunk_id.in_(chunk_ids_to_link)
-                ).all()
-
-                existing_linked_ids = {link.chunk_id for link in existing_links}
-
-                new_links = []
-
-                for c_id in chunk_ids_to_link:
-
-                    if c_id not in existing_linked_ids:
-                        new_links.append(
-                            ChatContext(
-                                conversation_id=conversation_id,
-                                chunk_id=c_id
-                            )
-                        )
-
-                if new_links:
-                    db.add_all(new_links)
-                    saved_count = len(new_links)
-
-            db.commit()
             return saved_count
 
         except Exception as e:
-
             print(f"❌ Error saving vector context: {e}")
-            db.rollback()
             return 0
 
-        finally:
-            db.close()
+        except Exception as e:
+            print(f"❌ Error saving vector context: {e}")
+            return 0
 
     # --------------------------------------------------------
     # Retrieve relevant chunks
     # --------------------------------------------------------
-    def get_relevant_context(
+    async def get_relevant_context(
         self,
         user_id: str,
         query: str,
@@ -275,37 +232,23 @@ class VectorStoreService:
     ) -> str:
 
         try:
-            db: Session = SessionLocal()
+            import asyncio
+            query_embedding = await self._embed_query_with_fallback(query)
 
-            def get_query_embedding_sync(q):
-
-                if self.openai_embeddings:
-                    try:
-                        vec = self.openai_embeddings.embed_query(q)
-                        return self._ensure_1536_dimensions(vec)
-
-                    except Exception as e:
-                        print(f"⚠️ OpenAI sync query embedding failed: {e}")
-
-                try:
-                    print("🔄 Using Ollama for sync query embedding...")
-                    vec = self.ollama_embeddings.embed_query(q)
-                    return self._ensure_1536_dimensions(vec)
-
-                except Exception as ollama_err:
-                    print(f"❌ Ollama sync query embedding failed: {ollama_err}")
-                    return [0.0] * self.VECTOR_DIM
-
-            query_embedding = get_query_embedding_sync(query)
-
-            # TRY PINECONE FIRST
+            # TRY PINECONE
             if self.index:
                 try:
                     filter_dict = {"user_id": str(user_id)}
-                    if current_url:
+                    
+                    # We can filter by URL OR Conversation ID if stored in metadata
+                    if conversation_id:
+                        filter_dict["conversation_id"] = conversation_id
+                    elif current_url:
                         filter_dict["url"] = current_url
                     
-                    results = self.index.query(
+                    # Run sync Pinecone query in a thread
+                    results = await asyncio.to_thread(
+                        self.index.query,
                         vector=query_embedding,
                         top_k=limit,
                         include_metadata=True,
@@ -315,48 +258,13 @@ class VectorStoreService:
                     if results and results.matches:
                         return "\n\n".join(m.metadata["content"] for m in results.matches if "content" in m.metadata)
                 except Exception as p_query_err:
-                    print(f"⚠️ Pinecone query failed: {p_query_err}. Falling back to SQL.")
-
-            # FALLBACK TO SQL (Original logic)
-            if conversation_id and current_url:
-
-                linked_chunk_ids = db.query(
-                    ChatContext.chunk_id
-                ).filter(
-                    ChatContext.conversation_id == conversation_id
-                ).subquery()
-
-                chunks = db.query(PageChunk).filter(
-                    PageChunk.id.in_(select(linked_chunk_ids)),
-                    PageChunk.user_id == str(user_id),
-                    PageChunk.url == current_url
-                ).order_by(
-                    PageChunk.embedding.cosine_distance(query_embedding)
-                ).limit(limit).all()
-
-                if chunks:
-                    return "\n\n".join(c.content for c in chunks)
-
-            if current_url:
-
-                chunks = db.query(PageChunk).filter(
-                    PageChunk.user_id == str(user_id),
-                    PageChunk.url == current_url
-                ).order_by(
-                    PageChunk.embedding.cosine_distance(query_embedding)
-                ).limit(limit).all()
-
-                if chunks:
-                    return "\n\n".join(c.content for c in chunks)
+                    print(f"⚠️ Pinecone query failed: {p_query_err}")
 
             return ""
 
         except Exception as e:
             print(f"❌ Error retrieving vector context: {e}")
             return ""
-
-        finally:
-            db.close()
 
 
 vector_store = VectorStoreService()

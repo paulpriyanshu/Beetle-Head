@@ -7,9 +7,23 @@ import { extractDOMTree } from '../utils/domExtractor';
 export function useContextSync() {
     const { state, dispatch } = useApp();
     const lastSavedUrl = useRef(null);
+    const syncedUrls = useRef(new Set());
+    const lastConvId = useRef(state.conversationId);
+
+    // Clear cache if conversation changes
+    if (lastConvId.current !== state.conversationId) {
+        syncedUrls.current.clear();
+        lastConvId.current = state.conversationId;
+    }
 
     const saveContext = useCallback(async (tabId, url, title) => {
         if (!tabId || !url || isRestrictedPage(url)) return;
+
+        // Skip if already synced for this conversation
+        if (state.conversationId && syncedUrls.current.has(`${state.conversationId}-${url}`)) {
+            console.log("Skipping redundant context save (already synced for this conv):", url);
+            return;
+        }
 
         try {
             const results = await chrome.scripting.executeScript({
@@ -20,9 +34,6 @@ export function useContextSync() {
             const pageContext = results?.[0]?.result;
 
             if (pageContext) {
-                // Download the extracted JSON
-                // downloadJSON(pageContext, `context-sync-${Date.now()}.json`);
-
                 const token = state.accessToken;
                 if (!token) return;
 
@@ -40,6 +51,10 @@ export function useContextSync() {
                     })
                 }).then(res => res.json()).then(data => {
                     console.log("Context saved successfully:", data);
+                    // Add to cache on success
+                    if (state.conversationId) {
+                        syncedUrls.current.add(`${state.conversationId}-${url}`);
+                    }
                 }).catch(err => console.error("Context save failed:", err));
             }
         } catch (error) {
@@ -82,7 +97,8 @@ export function useContextSync() {
                     dispatch({ type: 'SET_BROWSER_FOCUSED_TAB', tabId: tab.id, url: tab.url });
                 }
                 // avoid duplicate initial saves if context already processed
-                if (lastSavedUrl.current !== tab.url) {
+                const cacheKey = `${state.conversationId}-${tab.url}`;
+                if (lastSavedUrl.current !== tab.url || !syncedUrls.current.has(cacheKey)) {
                     saveContext(tab.id, tab.url, tab.title);
                     lastSavedUrl.current = tab.url;
                 }
@@ -93,7 +109,7 @@ export function useContextSync() {
             chrome.tabs.onUpdated.removeListener(handleTabUpdated);
             chrome.tabs.onActivated.removeListener(handleTabActivated);
         };
-    }, [saveContext, dispatch, state.isManualContext]);
+    }, [saveContext, dispatch, state.isManualContext, state.conversationId]);
 
     return { saveContext };
 }
